@@ -81,8 +81,62 @@ io.on('connection', function (socket) {
 	socket.on('join_stream',config=>{
 		live_id.push({
 			socket_id:socket.id,
-			key:config.key
+			key:config.key,
+			view:0,
+			viewer:[]
 		})
+		DBconn.query(`UPDATE streams SET view=0 WHERE stream_key='${config.key}'`, function (error, results, fields) {
+			if (error) throw error;
+		});
+	})
+	socket.on('view_stream',key=>{
+		for(let i in live_id){
+			if(live_id[i].key==key){
+				if(live_id[i].viewer.indexOf(socket.id)<0){
+					live_id[i].view+=1
+					live_id[i].viewer.push(socket.id)
+					io.emit('receivedView',{
+						view:live_id[i].view,
+						key:live_id[i].key
+					})
+					DBconn.query(`UPDATE streams SET view=view+1 WHERE stream_key='${live_id[i].key}'`, function (error, results, fields) {
+						if (error) throw error;
+					});
+				}
+				break
+			}
+		}
+		console.log(live_id)
+	})
+	socket.on('out_stream',key=>{
+		for(let i in live_id){
+			if(live_id[i].key==key){
+				live_id[i].view-=1
+				io.emit('receivedView',{
+					view:live_id[i].view,
+					key:live_id[i].key
+				})
+				DBconn.query(`UPDATE streams SET view=view-1 WHERE stream_key='${live_id[i].key}'`, function (error, results, fields) {
+					if (error) throw error;
+				});
+				for(let x in live_id[i].viewer){
+					if(live_id[i].viewer[x]==socket.id) live_id[i].viewer.splice(x,1)
+				}
+				break
+			}
+		}
+		console.log(live_id)
+	})
+	socket.on('get_view',key=>{
+		for(let live of live_id){
+			if(live.key==key){
+				io.to(socket.id).emit('receivedView',{
+					view:live.view,
+					key:live_id[i].key
+				})
+				break
+			}
+		}
 	})
 	socket.on('getStream',data=>{
 		key = data.key
@@ -94,12 +148,14 @@ io.on('connection', function (socket) {
 		}
 	})
 	socket.on('disconnect',()=>{
-		for(let live of live_id){
-			if(live.socket_id==socket.id && live.key){
-				DBconn.query(`UPDATE streams SET status=0 WHERE stream_key='${live.key}'`, function (error, results, fields) {
+		for(let i in live_id){
+			if(live_id[i].socket_id==socket.id && live_id[i].key){
+				DBconn.query(`UPDATE streams SET status=0,view=${live_id[i].view} WHERE stream_key='${live_id[i].key}'`, function (error, results, fields) {
 					if (error) throw error;
 				});
+				live_id.splice(i,1)
 				break;
+
 			}
 		}
 	})
